@@ -1,5 +1,5 @@
 //@version=5
-indicator("HTF po3 by @imriazul", overlay=true")
+indicator("HTF PO3 by @imriazul", overlay=true)
 
 //==================== INPUTS ====================
 grp_time = "Time Settings"
@@ -21,46 +21,65 @@ grp_pos     = "Position"
 rightOffset = input.int(20, "Right Offset (bars)", minval=1, maxval=300, group=grp_pos)
 gapBars     = input.int(1, "Gap Between Candles (bars)", minval=0, maxval=50, group=grp_pos)
 
-//==================== HTF BAR CHANGE (TZ SAFE) ====================
+grp_adv = "Advanced"
+lastN   = input.int(4, "Last N Candles (includes current)", minval=2, maxval=30, group=grp_adv)
+
+//==================== HTF CHANGE (TZ SAFE) ====================
 bool isNewHTF = ta.change(time(htfTf, tzInput))
 
 //==================== TRACK CURRENT HTF ====================
 var float curO = na
 var float curH = na
 var float curL = na
+float curC = close
 
-//==================== PREV 3 COMPLETED HTF ====================
-var float pO1 = na
-var float pH1 = na
-var float pL1 = na
-var float pC1 = na
+//==================== COMPLETED HISTORY ARRAYS ====================
+var array<float> histO = array.new_float()
+var array<float> histH = array.new_float()
+var array<float> histL = array.new_float()
+var array<float> histC = array.new_float()
 
-var float pO2 = na
-var float pH2 = na
-var float pL2 = na
-var float pC2 = na
+//==================== DRAW HANDLE ARRAYS ====================
+var array<line> wickArr = array.new_line()
+var array<box>  bodyArr = array.new_box()
 
-var float pO3 = na
-var float pH3 = na
-var float pL3 = na
-var float pC3 = na
+//==================== HELPERS ====================
+f_deleteAllHandles() =>
+    int sz = array.size(wickArr)
+    if sz > 0
+        for i = 0 to sz - 1
+            line lw = array.get(wickArr, i)
+            box  bx = array.get(bodyArr, i)
+            if not na(lw)
+                line.delete(lw)
+            if not na(bx)
+                box.delete(bx)
+
+f_resizeHandleArrays(_n) =>
+    f_deleteAllHandles()
+    array.clear(wickArr)
+    array.clear(bodyArr)
+    for i = 0 to _n - 1
+        array.push(wickArr, na)
+        array.push(bodyArr, na)
+
+// resize when lastN changes
+if array.size(wickArr) != lastN
+    f_resizeHandleArrays(lastN)
 
 //==================== SHIFT ON NEW HTF ====================
 if isNewHTF and not na(curO) and bar_index > 0
-    pO3 := pO2
-    pH3 := pH2
-    pL3 := pL2
-    pC3 := pC2
+    array.push(histO, curO)
+    array.push(histH, curH)
+    array.push(histL, curL)
+    array.push(histC, close[1])
 
-    pO2 := pO1
-    pH2 := pH1
-    pL2 := pL1
-    pC2 := pC1
-
-    pO1 := curO
-    pH1 := curH
-    pL1 := curL
-    pC1 := close[1]
+    // keep only last (lastN - 1) completed candles
+    while array.size(histO) > (lastN - 1)
+        array.shift(histO)
+        array.shift(histH)
+        array.shift(histL)
+        array.shift(histC)
 
 //==================== UPDATE CURRENT HTF ====================
 if isNewHTF or na(curO)
@@ -71,79 +90,55 @@ else
     curH := math.max(curH, high)
     curL := math.min(curL, low)
 
-float curC = close
-
 //==================== DRAW FUNCTION ====================
 f_drawCandle(_o, _h, _l, _c, _x) =>
     line w = na
     box  b = na
-
     if not na(_o) and not na(_h) and not na(_l) and not na(_c)
         float top = math.max(_o, _c)
         float bot = math.min(_o, _c)
         if top == bot
             top += syminfo.mintick
-
         color bodyCol = _c >= _o ? upColor : dnColor
-
         int leftX  = _x - int(math.floor(bodyWidth / 2))
         int rightX = _x + int(math.ceil(bodyWidth / 2))
-
         if showWick
             w := line.new(_x, _h, _x, _l, color=wickColor, width=wickWidth)
-
         if showBody
             b := box.new(leftX, top, rightX, bot, bgcolor=bodyCol, border_color=color.new(bodyCol, 0))
-
     [w, b]
 
 //==================== FIXED RIGHT POS ====================
 int anchorX = bar_index + rightOffset
 int stepX   = bodyWidth + gapBars
 
-var line w0 = na
-var line w1 = na
-var line w2 = na
-var line w3 = na
+// delete old drawings + clear slots
+f_deleteAllHandles()
+for i = 0 to lastN - 1
+    array.set(wickArr, i, na)
+    array.set(bodyArr, i, na)
 
-var box b0 = na
-var box b1 = na
-var box b2 = na
-var box b3 = na
+// completed count
+int completed = array.size(histO)
+int showCompleted = math.min(lastN - 1, completed)
 
-// delete old objects safely
-if not na(w0)
-    line.delete(w0)
-if not na(b0)
-    box.delete(b0)
+// draw completed (oldest -> newest among shown)
+if showCompleted > 0
+    for i = 0 to showCompleted - 1
+        int idx = completed - showCompleted + i
+        float o = array.get(histO, idx)
+        float h = array.get(histH, idx)
+        float l = array.get(histL, idx)
+        float c = array.get(histC, idx)
+        int x = anchorX + stepX * i
+        [tw, tb] = f_drawCandle(o, h, l, c, x)
+        array.set(wickArr, i, tw)
+        array.set(bodyArr, i, tb)
 
-if not na(w1)
-    line.delete(w1)
-if not na(b1)
-    box.delete(b1)
-
-if not na(w2)
-    line.delete(w2)
-if not na(b2)
-    box.delete(b2)
-
-if not na(w3)
-    line.delete(w3)
-if not na(b3)
-    box.delete(b3)
-
-// temp vars (destructure only with '=')
-[tw0, tb0] = f_drawCandle(pO3, pH3, pL3, pC3, anchorX)
-[tw1, tb1] = f_drawCandle(pO2, pH2, pL2, pC2, anchorX + stepX)
-[tw2, tb2] = f_drawCandle(pO1, pH1, pL1, pC1, anchorX + stepX * 2)
-[tw3, tb3] = f_drawCandle(curO, curH, curL, curC, anchorX + stepX * 3)
-
-// assign to persistent handles
-w0 := tw0
-b0 := tb0
-w1 := tw1
-b1 := tb1
-w2 := tw2
-b2 := tb2
-w3 := tw3
-b3 := tb3
+// draw current at the end
+int curPos = showCompleted
+if curPos <= lastN - 1
+    int xC = anchorX + stepX * curPos
+    [cw, cb] = f_drawCandle(curO, curH, curL, curC, xC)
+    array.set(wickArr, curPos, cw)
+    array.set(bodyArr, curPos, cb)
