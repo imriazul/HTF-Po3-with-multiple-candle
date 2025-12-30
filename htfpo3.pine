@@ -1,75 +1,77 @@
 //@version=5
-indicator("HTF po3 by @imriazul", overlay=true)
+indicator("HTF po3 by @imriazul", overlay=true")
+
 //==================== INPUTS ====================
 grp_time = "Time Settings"
 tzInput  = input.string("America/New_York", "Timezone", options=["America/New_York","Europe/London","Asia/Tokyo"], group=grp_time)
+htfTf    = input.timeframe("D", "HTF Timeframe (60, 180, 240, D, W)", group=grp_time)
 
 grp_vis  = "Visuals"
 showWick = input.bool(true, "Show Wick", group=grp_vis)
 showBody = input.bool(true, "Show Body", group=grp_vis)
 
-upColor  = input.color(color.rgb(11, 142, 15), "Bull Body", group=grp_vis)
-dnColor  = input.color(color.new(#ff5252, 0), "Bear Body", group=grp_vis)
-wickColor= input.color(color.gray, "Wick Color", group=grp_vis)
+upColor   = input.color(color.rgb(11, 142, 15), "Bull Body", group=grp_vis)
+dnColor   = input.color(color.new(#ff5252, 0), "Bear Body", group=grp_vis)
+wickColor = input.color(color.gray, "Wick Color", group=grp_vis)
 
-bodyWidth= input.int(2, "Body Width (bars)", minval=2, maxval=200, group=grp_vis)
-wickWidth= input.int(1, "Wick Width", minval=1, maxval=4, group=grp_vis)
+bodyWidth = input.int(2, "Body Width (bars)", minval=2, maxval=200, group=grp_vis)
+wickWidth = input.int(1, "Wick Width", minval=1, maxval=4, group=grp_vis)
 
-grp_pos  = "Position"
+grp_pos     = "Position"
 rightOffset = input.int(20, "Right Offset (bars)", minval=1, maxval=300, group=grp_pos)
 gapBars     = input.int(1, "Gap Between Candles (bars)", minval=0, maxval=50, group=grp_pos)
 
-bool isNewDay = ta.change(time("D", tzInput))
+//==================== HTF BAR CHANGE (TZ SAFE) ====================
+bool isNewHTF = ta.change(time(htfTf, tzInput))
 
-//==================== TRACK CURRENT DAY ====================
-var float dayOpen = na
-var float dayHigh = na
-var float dayLow  = na
+//==================== TRACK CURRENT HTF ====================
+var float curO = na
+var float curH = na
+var float curL = na
 
-//==================== PREV 3 COMPLETED DAYS ====================
-var float prevO1 = na
-var float prevH1 = na
-var float prevL1 = na
-var float prevC1 = na
+//==================== PREV 3 COMPLETED HTF ====================
+var float pO1 = na
+var float pH1 = na
+var float pL1 = na
+var float pC1 = na
 
-var float prevO2 = na
-var float prevH2 = na
-var float prevL2 = na
-var float prevC2 = na
+var float pO2 = na
+var float pH2 = na
+var float pL2 = na
+var float pC2 = na
 
-var float prevO3 = na
-var float prevH3 = na
-var float prevL3 = na
-var float prevC3 = na
+var float pO3 = na
+var float pH3 = na
+var float pL3 = na
+var float pC3 = na
 
-//==================== SHIFT ON NEW DAY ====================
-if isNewDay and not na(dayOpen) and bar_index > 0
-    prevO3 := prevO2
-    prevH3 := prevH2
-    prevL3 := prevL2
-    prevC3 := prevC2
+//==================== SHIFT ON NEW HTF ====================
+if isNewHTF and not na(curO) and bar_index > 0
+    pO3 := pO2
+    pH3 := pH2
+    pL3 := pL2
+    pC3 := pC2
 
-    prevO2 := prevO1
-    prevH2 := prevH1
-    prevL2 := prevL1
-    prevC2 := prevC1
+    pO2 := pO1
+    pH2 := pH1
+    pL2 := pL1
+    pC2 := pC1
 
-    // yesterday completed = tracked OHLC + close[1]
-    prevO1 := dayOpen
-    prevH1 := dayHigh
-    prevL1 := dayLow
-    prevC1 := close[1]
+    pO1 := curO
+    pH1 := curH
+    pL1 := curL
+    pC1 := close[1]
 
-//==================== UPDATE CURRENT DAY ====================
-if isNewDay or na(dayOpen)
-    dayOpen := open
-    dayHigh := high
-    dayLow  := low
+//==================== UPDATE CURRENT HTF ====================
+if isNewHTF or na(curO)
+    curO := open
+    curH := high
+    curL := low
 else
-    dayHigh := math.max(dayHigh, high)
-    dayLow  := math.min(dayLow, low)
+    curH := math.max(curH, high)
+    curL := math.min(curL, low)
 
-float dayClose = close
+float curC = close
 
 //==================== DRAW FUNCTION ====================
 f_drawCandle(_o, _h, _l, _c, _x) =>
@@ -91,7 +93,6 @@ f_drawCandle(_o, _h, _l, _c, _x) =>
             w := line.new(_x, _h, _x, _l, color=wickColor, width=wickWidth)
 
         if showBody
-            // box.new(left, top, right, bottom)
             b := box.new(leftX, top, rightX, bot, bgcolor=bodyCol, border_color=color.new(bodyCol, 0))
 
     [w, b]
@@ -100,7 +101,6 @@ f_drawCandle(_o, _h, _l, _c, _x) =>
 int anchorX = bar_index + rightOffset
 int stepX   = bodyWidth + gapBars
 
-// persistent handles (ONE PER LINE - typed var)
 var line w0 = na
 var line w1 = na
 var line w2 = na
@@ -111,7 +111,7 @@ var box b1 = na
 var box b2 = na
 var box b3 = na
 
-// delete safely (NO 'then')
+// delete old objects safely
 if not na(w0)
     line.delete(w0)
 if not na(b0)
@@ -132,21 +132,18 @@ if not na(w3)
 if not na(b3)
     box.delete(b3)
 
-// temp vars (destructure ONLY with '=')
-[tw0, tb0] = f_drawCandle(prevO3, prevH3, prevL3, prevC3, anchorX)
-[tw1, tb1] = f_drawCandle(prevO2, prevH2, prevL2, prevC2, anchorX + stepX)
-[tw2, tb2] = f_drawCandle(prevO1, prevH1, prevL1, prevC1, anchorX + stepX * 2)
-[tw3, tb3] = f_drawCandle(dayOpen, dayHigh, dayLow, dayClose, anchorX + stepX * 3)
+// temp vars (destructure only with '=')
+[tw0, tb0] = f_drawCandle(pO3, pH3, pL3, pC3, anchorX)
+[tw1, tb1] = f_drawCandle(pO2, pH2, pL2, pC2, anchorX + stepX)
+[tw2, tb2] = f_drawCandle(pO1, pH1, pL1, pC1, anchorX + stepX * 2)
+[tw3, tb3] = f_drawCandle(curO, curH, curL, curC, anchorX + stepX * 3)
 
-// assign to persistent handles (use ':=')
+// assign to persistent handles
 w0 := tw0
 b0 := tb0
-
 w1 := tw1
 b1 := tb1
-
 w2 := tw2
 b2 := tb2
-
 w3 := tw3
 b3 := tb3
