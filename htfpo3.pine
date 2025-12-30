@@ -1,0 +1,152 @@
+//@version=5
+indicator("HTF po3 by @imriazul", overlay=true)
+//==================== INPUTS ====================
+grp_time = "Time Settings"
+tzInput  = input.string("America/New_York", "Timezone", options=["America/New_York","Europe/London","Asia/Tokyo"], group=grp_time)
+
+grp_vis  = "Visuals"
+showWick = input.bool(true, "Show Wick", group=grp_vis)
+showBody = input.bool(true, "Show Body", group=grp_vis)
+
+upColor  = input.color(color.rgb(11, 142, 15), "Bull Body", group=grp_vis)
+dnColor  = input.color(color.new(#ff5252, 0), "Bear Body", group=grp_vis)
+wickColor= input.color(color.gray, "Wick Color", group=grp_vis)
+
+bodyWidth= input.int(2, "Body Width (bars)", minval=2, maxval=200, group=grp_vis)
+wickWidth= input.int(1, "Wick Width", minval=1, maxval=4, group=grp_vis)
+
+grp_pos  = "Position"
+rightOffset = input.int(20, "Right Offset (bars)", minval=1, maxval=300, group=grp_pos)
+gapBars     = input.int(1, "Gap Between Candles (bars)", minval=0, maxval=50, group=grp_pos)
+
+bool isNewDay = ta.change(time("D", tzInput))
+
+//==================== TRACK CURRENT DAY ====================
+var float dayOpen = na
+var float dayHigh = na
+var float dayLow  = na
+
+//==================== PREV 3 COMPLETED DAYS ====================
+var float prevO1 = na
+var float prevH1 = na
+var float prevL1 = na
+var float prevC1 = na
+
+var float prevO2 = na
+var float prevH2 = na
+var float prevL2 = na
+var float prevC2 = na
+
+var float prevO3 = na
+var float prevH3 = na
+var float prevL3 = na
+var float prevC3 = na
+
+//==================== SHIFT ON NEW DAY ====================
+if isNewDay and not na(dayOpen) and bar_index > 0
+    prevO3 := prevO2
+    prevH3 := prevH2
+    prevL3 := prevL2
+    prevC3 := prevC2
+
+    prevO2 := prevO1
+    prevH2 := prevH1
+    prevL2 := prevL1
+    prevC2 := prevC1
+
+    // yesterday completed = tracked OHLC + close[1]
+    prevO1 := dayOpen
+    prevH1 := dayHigh
+    prevL1 := dayLow
+    prevC1 := close[1]
+
+//==================== UPDATE CURRENT DAY ====================
+if isNewDay or na(dayOpen)
+    dayOpen := open
+    dayHigh := high
+    dayLow  := low
+else
+    dayHigh := math.max(dayHigh, high)
+    dayLow  := math.min(dayLow, low)
+
+float dayClose = close
+
+//==================== DRAW FUNCTION ====================
+f_drawCandle(_o, _h, _l, _c, _x) =>
+    line w = na
+    box  b = na
+
+    if not na(_o) and not na(_h) and not na(_l) and not na(_c)
+        float top = math.max(_o, _c)
+        float bot = math.min(_o, _c)
+        if top == bot
+            top += syminfo.mintick
+
+        color bodyCol = _c >= _o ? upColor : dnColor
+
+        int leftX  = _x - int(math.floor(bodyWidth / 2))
+        int rightX = _x + int(math.ceil(bodyWidth / 2))
+
+        if showWick
+            w := line.new(_x, _h, _x, _l, color=wickColor, width=wickWidth)
+
+        if showBody
+            // box.new(left, top, right, bottom)
+            b := box.new(leftX, top, rightX, bot, bgcolor=bodyCol, border_color=color.new(bodyCol, 0))
+
+    [w, b]
+
+//==================== FIXED RIGHT POS ====================
+int anchorX = bar_index + rightOffset
+int stepX   = bodyWidth + gapBars
+
+// persistent handles (ONE PER LINE - typed var)
+var line w0 = na
+var line w1 = na
+var line w2 = na
+var line w3 = na
+
+var box b0 = na
+var box b1 = na
+var box b2 = na
+var box b3 = na
+
+// delete safely (NO 'then')
+if not na(w0)
+    line.delete(w0)
+if not na(b0)
+    box.delete(b0)
+
+if not na(w1)
+    line.delete(w1)
+if not na(b1)
+    box.delete(b1)
+
+if not na(w2)
+    line.delete(w2)
+if not na(b2)
+    box.delete(b2)
+
+if not na(w3)
+    line.delete(w3)
+if not na(b3)
+    box.delete(b3)
+
+// temp vars (destructure ONLY with '=')
+[tw0, tb0] = f_drawCandle(prevO3, prevH3, prevL3, prevC3, anchorX)
+[tw1, tb1] = f_drawCandle(prevO2, prevH2, prevL2, prevC2, anchorX + stepX)
+[tw2, tb2] = f_drawCandle(prevO1, prevH1, prevL1, prevC1, anchorX + stepX * 2)
+[tw3, tb3] = f_drawCandle(dayOpen, dayHigh, dayLow, dayClose, anchorX + stepX * 3)
+
+// assign to persistent handles (use ':=')
+w0 := tw0
+b0 := tb0
+
+w1 := tw1
+b1 := tb1
+
+w2 := tw2
+b2 := tb2
+
+w3 := tw3
+b3 := tb3
